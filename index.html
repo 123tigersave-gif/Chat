@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat App</title>
+<style>
+:root{--bg:#f3f6f4;--panel:#fff;--ink:#16211c;--mute:#6b7b73;--accent:#0f766e;--mine:#d6f0ea;--line:#e2e9e5}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1512;--panel:#16201b;--ink:#e8f0ec;--mute:#8aa095;--accent:#2dd4bf;--mine:#14423b;--line:#24332c}}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+button{font:inherit;cursor:pointer;border:0}
+#login{height:100%;display:grid;place-content:center;gap:16px;text-align:center;padding:24px}
+#login h1{font-size:28px}
+.btn{background:var(--accent);color:#fff;padding:12px 20px;border-radius:10px;font-weight:600}
+#app{display:none;height:100%}
+.side{background:var(--panel);width:100%;height:100%;display:flex;flex-direction:column}
+.head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-weight:600}
+.link{background:none;color:var(--accent)}
+.users{overflow:auto;flex:1}
+.user{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+.av{width:42px;height:42px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;object-fit:cover}
+.chat{display:none;height:100%;flex-direction:column;background:var(--bg)}
+#msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:6px}
+.m{max-width:78%;padding:8px 12px;border-radius:14px;background:var(--panel);align-self:flex-start;word-wrap:break-word}
+.m.me{background:var(--mine);align-self:flex-end}
+.m time{display:block;font-size:11px;color:var(--mute);text-align:right;margin-top:2px}
+.bar{display:flex;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
+.bar input{flex:1;padding:12px 14px;border-radius:22px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+.bar button{background:var(--accent);color:#fff;border-radius:22px;padding:0 18px;font-weight:600}
+.empty{padding:24px;color:var(--mute);text-align:center}
+@media(min-width:760px){
+ #app{display:grid;grid-template-columns:340px 1fr}
+ .side{border-right:1px solid var(--line)}
+ .chat{display:flex}
+ #back{display:none}
+}
+body.open .side{display:none}
+body.open .chat{display:flex}
+@media(min-width:760px){body.open .side{display:flex}}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>Chat App</h1>
+  <p style="color:var(--mute)">Google se login karo aur chat shuru karo</p>
+  <button class="btn" id="loginBtn">Google se login</button>
+</div>
+
+<div id="app">
+  <div class="side">
+    <div class="head"><div id="me">Me</div><button class="link" id="logout">Logout</button></div>
+    <div class="users" id="users"></div>
+  </div>
+  <div class="chat" id="chat">
+    <div class="head"><button class="link" id="back">← Wapas</button><div id="peerName">Chat chuno</div><span></span></div>
+    <div id="msgs"><div class="empty">Left side se kisi ko chuno</div></div>
+    <div class="bar"><input id="text" placeholder="Message likho…" autocomplete="off"><button id="send">Bhejo</button></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyD8TkkHf6huSYS3pRNo-CSkGJ-lg9w1E9E",
+  authDomain: "chat-24772.firebaseapp.com",
+  projectId: "chat-24772",
+  storageBucket: "chat-24772.firebasestorage.app",
+  messagingSenderId: "994811080296",
+  appId: "1:994811080296:web:3d376f7f4867e467c8d5dd"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth(), db = firebase.firestore();
+const $ = id => document.getElementById(id);
+let me = null, peer = null, unsub = null;
+
+$('loginBtn').onclick = () => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => alert(e.message));
+$('logout').onclick = () => auth.signOut();
+
+auth.onAuthStateChanged(async user => {
+  me = user;
+  $('login').style.display = user ? 'none' : 'grid';
+  $('app').style.display = user ? '' : 'none';
+  if (!user) return;
+  $('me').textContent = user.displayName;
+  await db.collection('users').doc(user.uid).set({
+    uid: user.uid, name: user.displayName, photo: user.photoURL || ''
+  }, { merge: true });
+  loadUsers();
+});
+
+function loadUsers() {
+  db.collection('users').onSnapshot(snap => {
+    const box = $('users'); box.innerHTML = '';
+    snap.forEach(d => {
+      const u = d.data(); if (u.uid === me.uid) return;
+      const row = document.createElement('div'); row.className = 'user';
+      const av = u.photo ? Object.assign(document.createElement('img'), { src: u.photo, className: 'av' })
+        : Object.assign(document.createElement('div'), { className: 'av', textContent: (u.name || '?')[0] });
+      const nm = document.createElement('div'); nm.textContent = u.name;
+      row.append(av, nm); row.onclick = () => openChat(u); box.append(row);
+    });
+    if (!box.children.length) box.innerHTML = '<div class="empty">Abhi koi aur user nahi hai. Dost ko login karwao.</div>';
+  });
+}
+
+const chatId = (a, b) => [a, b].sort().join('_');
+
+function openChat(u) {
+  peer = u; document.body.classList.add('open');
+  $('peerName').textContent = u.name;
+  if (unsub) unsub();
+  unsub = db.collection('chats').doc(chatId(me.uid, u.uid)).collection('messages')
+    .orderBy('t').onSnapshot(snap => {
+      const box = $('msgs'); box.innerHTML = '';
+      snap.forEach(d => {
+        const m = d.data();
+        const el = document.createElement('div'); el.className = 'm' + (m.from === me.uid ? ' me' : '');
+        el.textContent = m.text;
+        const tm = document.createElement('time');
+        tm.textContent = m.t ? m.t.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '…';
+        el.append(tm); box.append(el);
+      });
+      if (!snap.size) box.innerHTML = '<div class="empty">Pehla message bhejo 👋</div>';
+      box.scrollTop = box.scrollHeight;
+    });
+}
+
+async function send() {
+  const text = $('text').value.trim();
+  if (!text || !peer) return;
+  $('text').value = '';
+  await db.collection('chats').doc(chatId(me.uid, peer.uid)).collection('messages').add({
+    from: me.uid, text, t: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+$('send').onclick = send;
+$('text').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+$('back').onclick = () => document.body.classList.remove('open');
+</script>
+</body>
+  </html>
