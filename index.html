@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Chat App</title>
 <style>
 :root{--bg:#f3f6f4;--panel:#fff;--ink:#16211c;--mute:#6b7b73;--accent:#0f766e;--mine:#d6f0ea;--line:#e2e9e5}
@@ -15,6 +16,7 @@ button{font:inherit;cursor:pointer;border:0}
 #login h1{font-size:28px}
 .btn{background:var(--accent);color:#fff;padding:12px 20px;border-radius:10px;font-weight:600}
 #app{display:none;height:100%}
+body.in #app{display:block}
 .side{background:var(--panel);width:100%;height:100%;display:flex;flex-direction:column}
 .head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-weight:600}
 .link{background:none;color:var(--accent)}
@@ -31,7 +33,7 @@ button{font:inherit;cursor:pointer;border:0}
 .bar button{background:var(--accent);color:#fff;border-radius:22px;padding:0 18px;font-weight:600}
 .empty{padding:24px;color:var(--mute);text-align:center}
 @media(min-width:760px){
- #app{display:grid;grid-template-columns:340px 1fr}
+ body.in #app{display:grid;grid-template-columns:340px 1fr}
  .side{border-right:1px solid var(--line)}
  .chat{display:flex}
  #back{display:none}
@@ -57,7 +59,7 @@ body.open .chat{display:flex}
   <div class="chat" id="chat">
     <div class="head"><button class="link" id="back">← Wapas</button><div id="peerName">Chat chuno</div><span></span></div>
     <div id="msgs"><div class="empty">Left side se kisi ko chuno</div></div>
-    <div class="bar"><input id="text" placeholder="Message likho…" autocomplete="off"><button id="send">Bhejo</button></div>
+    <div class="bar"><input id="text" maxlength="2000" placeholder="Message likho…" autocomplete="off"><button id="send">Bhejo</button></div>
   </div>
 </div>
 
@@ -77,7 +79,9 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth(), db = firebase.firestore();
 const $ = id => document.getElementById(id);
-let me = null, peer = null, unsub = null;
+let me = null, peer = null, unsubChat = null, unsubUsers = null;
+
+const safePhoto = url => typeof url === 'string' && /^https:\/\//.test(url) && url.length < 500;
 
 $('loginBtn').onclick = () => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => alert(e.message));
 $('logout').onclick = () => auth.signOut();
@@ -85,63 +89,75 @@ $('logout').onclick = () => auth.signOut();
 auth.onAuthStateChanged(async user => {
   me = user;
   $('login').style.display = user ? 'none' : 'grid';
-  $('app').style.display = user ? '' : 'none';
+  document.body.classList.toggle('in', !!user);
+  if (unsubChat) { unsubChat(); unsubChat = null; }
+  if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+  peer = null;
+  document.body.classList.remove('open');
   if (!user) return;
-  $('me').textContent = user.displayName;
-  await db.collection('users').doc(user.uid).set({
-    uid: user.uid, name: user.displayName, photo: user.photoURL || ''
-  }, { merge: true });
+  const name = (user.displayName || 'User').slice(0, 99);
+  const photo = safePhoto(user.photoURL) ? user.photoURL : '';
+  $('me').textContent = name;
+  try {
+    await db.collection('users').doc(user.uid).set({ uid: user.uid, name, photo }, { merge: true });
+  } catch (e) { console.error(e); }
   loadUsers();
 });
 
 function loadUsers() {
-  db.collection('users').onSnapshot(snap => {
+  unsubUsers = db.collection('users').onSnapshot(snap => {
     const box = $('users'); box.innerHTML = '';
     snap.forEach(d => {
-      const u = d.data(); if (u.uid === me.uid) return;
+      const u = d.data(); if (!u || u.uid === me.uid) return;
       const row = document.createElement('div'); row.className = 'user';
-      const av = u.photo ? Object.assign(document.createElement('img'), { src: u.photo, className: 'av' })
-        : Object.assign(document.createElement('div'), { className: 'av', textContent: (u.name || '?')[0] });
-      const nm = document.createElement('div'); nm.textContent = u.name;
+      let av;
+      if (safePhoto(u.photo)) {
+        av = document.createElement('img'); av.src = u.photo; av.className = 'av'; av.referrerPolicy = 'no-referrer';
+      } else {
+        av = document.createElement('div'); av.className = 'av'; av.textContent = String(u.name || '?')[0];
+      }
+      const nm = document.createElement('div'); nm.textContent = String(u.name || '');
       row.append(av, nm); row.onclick = () => openChat(u); box.append(row);
     });
     if (!box.children.length) box.innerHTML = '<div class="empty">Abhi koi aur user nahi hai. Dost ko login karwao.</div>';
-  });
+  }, e => console.error(e));
 }
 
 const chatId = (a, b) => [a, b].sort().join('_');
 
 function openChat(u) {
   peer = u; document.body.classList.add('open');
-  $('peerName').textContent = u.name;
-  if (unsub) unsub();
-  unsub = db.collection('chats').doc(chatId(me.uid, u.uid)).collection('messages')
+  $('peerName').textContent = String(u.name || '');
+  if (unsubChat) unsubChat();
+  unsubChat = db.collection('chats').doc(chatId(me.uid, u.uid)).collection('messages')
     .orderBy('t').onSnapshot(snap => {
       const box = $('msgs'); box.innerHTML = '';
       snap.forEach(d => {
         const m = d.data();
         const el = document.createElement('div'); el.className = 'm' + (m.from === me.uid ? ' me' : '');
-        el.textContent = m.text;
+        el.textContent = String(m.text || '');
         const tm = document.createElement('time');
         tm.textContent = m.t ? m.t.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '…';
         el.append(tm); box.append(el);
       });
       if (!snap.size) box.innerHTML = '<div class="empty">Pehla message bhejo 👋</div>';
       box.scrollTop = box.scrollHeight;
-    });
+    }, e => { console.error(e); $('msgs').innerHTML = '<div class="empty">Chat load nahi hui.</div>'; });
 }
 
 async function send() {
-  const text = $('text').value.trim();
-  if (!text || !peer) return;
+  const text = $('text').value.trim().slice(0, 2000);
+  if (!text || !peer || !me) return;
   $('text').value = '';
-  await db.collection('chats').doc(chatId(me.uid, peer.uid)).collection('messages').add({
-    from: me.uid, text, t: firebase.firestore.FieldValue.serverTimestamp()
-  });
+  try {
+    await db.collection('chats').doc(chatId(me.uid, peer.uid)).collection('messages').add({
+      from: me.uid, text, t: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) { alert('Message nahi gaya: ' + e.message); }
 }
 $('send').onclick = send;
 $('text').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 $('back').onclick = () => document.body.classList.remove('open');
 </script>
 </body>
-  </html>
+ </html>
