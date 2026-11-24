@@ -4,7 +4,6 @@ db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 const $ = id => document.getElementById(id);
 const TS = () => firebase.firestore.FieldValue.serverTimestamp();
 
-// Ye shabd naam mein nahi chalenge. Apna channel naam bhi yahan jod do.
 const BAD = ['admin', 'support', 'official', 'moderator', 'system', 'youtube', 'owner'];
 
 let me = null, myName = '', cur = null, unsubM = null, unsubL = null;
@@ -55,7 +54,7 @@ function enterApp() {
 
 function checkName(n) {
   if (!/^[\p{L}\p{N}][\p{L}\p{N} _.\-]{2,29}$/u.test(n))
-    return 'Naam 3 se 30 akshar ka ho (akshar, number, space, _ . - chalega) aur akshar ya number se shuru ho.';
+    return 'Naam 3 se 30 akshar ka ho (akshar, number, space, _ . - chalega).';
   const k = n.toLowerCase();
   if (BAD.some(w => k.includes(w))) return 'Ye naam allowed nahi hai.';
   return '';
@@ -87,87 +86,3 @@ async function saveName() {
 }
 $('nameBtn').onclick = saveName;
 $('nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') saveName(); });
-
-function setTab(t) {
-  tab = t;
-  $('tU').classList.toggle('on', t === 'users');
-  $('tR').classList.toggle('on', t === 'rooms');
-  $('q').value = ''; loadList();
-}
-$('tU').onclick = () => setTab('users');
-$('tR').onclick = () => setTab('rooms');
-$('q').oninput = () => loadList();
-
-function loadList() {
-  if (unsubL) unsubL();
-  const q = $('q').value.trim(), box = $('list');
-  if (tab === 'users') {
-    const ql = q.toLowerCase();
-    let r = db.collection('users').orderBy('nameLower');
-    if (ql) r = r.startAt(ql).endAt(ql + '\uf8ff');
-    unsubL = r.limit(30).onSnapshot(snap => {
-      box.innerHTML = '';
-      snap.forEach(d => {
-        const u = d.data(); if (!u || u.uid === me.uid) return;
-        const row = mk('div', 'row');
-        let av;
-        if (safePhoto(u.photo)) { av = mk('img', 'av'); av.src = u.photo; av.referrerPolicy = 'no-referrer'; }
-        else av = mk('div', 'av', String(u.name || '?')[0]);
-        row.append(av, mk('div', '', String(u.name || '')));
-        row.onclick = () => openUser(u); box.append(row);
-      });
-      if (!box.children.length) box.append(mk('div', 'empty', q ? 'Koi nahi mila' : 'Abhi koi aur user nahi hai.'));
-    }, e => console.error(e));
-  } else {
-    unsubL = db.collection('rooms').orderBy('created', 'desc').limit(30).onSnapshot(snap => {
-      box.innerHTML = '';
-      snap.forEach(d => {
-        const r = d.data();
-        if (q && !String(r.name).toLowerCase().includes(q.toLowerCase())) return;
-        const row = mk('div', 'row');
-        row.append(mk('div', 'av', r.type === 'channel' ? '📢' : '👥'));
-        const t = mk('div', '', String(r.name || '')); t.append(mk('small', '', r.type === 'channel' ? 'Channel' : 'Group'));
-        row.append(t); row.onclick = () => openRoom(r, d.id); box.append(row);
-      });
-      if (!box.children.length) box.append(mk('div', 'empty', 'Koi group ya channel nahi. Upar "+ Naya" dabao.'));
-    }, e => console.error(e));
-  }
-}
-
-$('newRoom').onclick = async () => {
-  const name = (prompt('Naam likho (max 60 akshar)') || '').trim().slice(0, 60);
-  if (!name) return;
-  const type = confirm('OK = Channel (sirf aap post karoge)\nCancel = Group (sab bol sakte hain)') ? 'channel' : 'group';
-  try {
-    await db.collection('rooms').add({ type, name, owner: me.uid, created: TS() });
-    setTab('rooms');
-  } catch (e) { alert('Nahi bana: ' + e.message); }
-};
-
-function openUser(u) {
-  start({ col: db.collection('chats').doc(chatId(me.uid, u.uid)).collection('messages'),
-    canPost: true, isOwner: false, isStaff: false, roomRef: null, title: String(u.name || '') });
-}
-function openRoom(r, id) {
-  const isOwner = r.owner === me.uid;
-  const isStaff = isOwner || (Array.isArray(r.admins) && r.admins.includes(me.uid));
-  const ref = db.collection('rooms').doc(id);
-  start({ col: ref.collection('messages'), canPost: r.type === 'group' || isStaff,
-    isOwner, isStaff, roomRef: ref, title: (r.type === 'channel' ? '📢 ' : '👥 ') + r.name });
-}
-
-function start(c) {
-  cur = c; clearReply(); token++;
-  const my = token, lim = CONFIG.pageSize;
-  store = new Map(); hasMore = true; loadingOld = false; stick = true;
-  let first = true;
-  document.body.classList.add('open');
-  $('title').textContent = c.title;
-  $('bar').style.display = c.canPost ? 'flex' : 'none';
-  $('note').style.display = c.canPost ? 'none' : 'block';
-  $('msgs').innerHTML = '';
-  if (unsubM) unsubM();
-  unsubM = c.col.orderBy('t').limitToLast(lim).onSnapshot(snap => {
-    if (my !== token) return;
-    let oldest = Infinity;
-    snap.docs.forEach
